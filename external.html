@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lot 9 Live Dashboard · Schedule Health by County</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f172a; --card: #1e293b; --border: #334155;
+      --text: #f1f5f9; --muted: #94a3b8; --accent: #38bdf8;
+      --green: #22c55e; --amber: #f59e0b; --red: #ef4444;
+      --purple: #a78bfa; --blue: #3b82f6; --orange: #f97316; --slate: #64748b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; min-height: 100vh; }
+    .header {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+      border-bottom: 1px solid var(--border); padding: 1rem 1.5rem;
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem;
+      position: sticky; top: 0; z-index: 50;
+    }
+    .header h1 { font-size: 1.2rem; font-weight: 800; }
+    .header h1 span { color: var(--accent); }
+    .header-meta { display: flex; flex-wrap: wrap; gap: 0.7rem; font-size: 0.72rem; color: var(--muted); align-items: center; }
+    .badge { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.18rem 0.5rem; border-radius: 999px; font-size: 0.62rem; font-weight: 600; text-transform: uppercase; }
+    .badge-live { background: rgba(34,197,94,0.15); color: var(--green); }
+    .badge-eib { background: rgba(56,189,248,0.15); color: var(--accent); }
+    .container { max-width: 1500px; margin: 0 auto; padding: 1.15rem; }
+    .section-title {
+      font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--muted); margin: 1.35rem 0 0.65rem;
+    }
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 0.65rem; }
+    .kpi-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem 0.9rem; }
+    .kpi-label { font-size: 0.6rem; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.03em; }
+    .kpi-value { font-size: 1.3rem; font-weight: 800; margin-top: 0.1rem; letter-spacing: -0.03em; }
+    .kpi-sub { font-size: 0.65rem; color: var(--muted); margin-top: 0.1rem; }
+    .county-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.9rem; }
+    .county-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    .county-card h3 {
+      font-size: 0.95rem; font-weight: 700; color: var(--accent);
+      display: flex; justify-content: space-between; align-items: baseline;
+    }
+    .county-card h3 .total { font-size: 0.7rem; color: var(--muted); font-weight: 500; }
+    .done-pct { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.03em; }
+    .done-pct.high { color: var(--green); }
+    .done-pct.mid { color: var(--amber); }
+    .done-pct.low { color: var(--red); }
+    .bar-stack {
+      display: flex; height: 12px; border-radius: 6px; overflow: hidden;
+      background: #0f172a; margin: 0.2rem 0 0.35rem;
+    }
+    .bar-seg { height: 100%; min-width: 0; }
+    .legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem 0.55rem; font-size: 0.65rem; }
+    .legend-item { display: flex; align-items: center; gap: 0.3rem; }
+    .legend-dot { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
+    .legend-item span:last-child { margin-left: auto; font-weight: 600; }
+    .table-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 11px; padding: 0.9rem; overflow-x: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
+    th {
+      text-align: left; padding: 0.5rem 0.55rem; background: #0f172a;
+      color: var(--muted); font-weight: 600; text-transform: uppercase;
+      font-size: 0.58rem; letter-spacing: 0.03em; border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td { padding: 0.45rem 0.55rem; border-bottom: 1px solid rgba(51,65,85,0.45); white-space: nowrap; }
+    tr:hover td { background: rgba(56,189,248,0.04); }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pct-high { color: var(--green); font-weight: 700; }
+    .pct-mid { color: var(--amber); font-weight: 700; }
+    .pct-low { color: var(--red); font-weight: 700; }
+    .charts-row { display: grid; grid-template-columns: 1.15fr 1fr; gap: 0.9rem; }
+    @media (max-width: 960px) { .charts-row { grid-template-columns: 1fr; } }
+    .chart-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 11px; padding: 1rem;
+    }
+    .chart-card h3 { font-size: 0.82rem; font-weight: 600; margin-bottom: 0.7rem; }
+    .chart-wrap { position: relative; height: 260px; }
+    .pending-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.65rem; }
+    .pending-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 0.8rem;
+    }
+    .pending-card h4 { font-size: 0.75rem; font-weight: 600; color: var(--accent); margin-bottom: 0.25rem; }
+    .pending-val { font-size: 1.25rem; font-weight: 800; }
+    .pending-sub { font-size: 0.65rem; color: var(--muted); margin-top: 0.1rem; }
+    .status-key {
+      display: flex; flex-wrap: wrap; gap: 0.5rem 0.95rem;
+      font-size: 0.65rem; color: var(--muted); margin-bottom: 0.35rem;
+    }
+    .status-key span { display: flex; align-items: center; gap: 0.28rem; }
+    .status-key i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+    .note {
+      background: rgba(56,189,248,0.06); border: 1px solid rgba(56,189,248,0.2);
+      border-radius: 9px; padding: 0.7rem 0.9rem; font-size: 0.7rem;
+      color: #7dd3fc; margin-bottom: 0.9rem;
+    }
+    .upload-zone {
+      border: 2px dashed var(--border); border-radius: 12px; padding: 1.5rem;
+      text-align: center; background: rgba(30,41,59,0.5); margin-top: 0.4rem;
+      transition: border-color 0.2s, background 0.2s; cursor: pointer;
+    }
+    .upload-zone:hover, .upload-zone.dragover {
+      border-color: var(--accent); background: rgba(56,189,248,0.06);
+    }
+    .upload-zone h2 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.3rem; }
+    .upload-zone p { font-size: 0.75rem; color: var(--muted); }
+    .upload-zone input { display: none; }
+    .upload-btn {
+      display: inline-block; margin-top: 0.65rem; padding: 0.45rem 1.1rem;
+      background: var(--accent); color: #0f172a; border: none; border-radius: 8px;
+      font-weight: 700; font-size: 0.8rem; cursor: pointer;
+    }
+    .upload-status { margin-top: 0.65rem; font-size: 0.75rem; color: var(--green); display: none; }
+    .upload-status.error { color: var(--red); }
+    .footer {
+      text-align: center; padding: 1.4rem 1rem; color: var(--muted);
+      font-size: 0.68rem; border-top: 1px solid var(--border); margin-top: 1.5rem;
+    }
+    .detail-list { font-size: 0.72rem; max-height: 220px; overflow-y: auto; }
+    .detail-list div { padding: 0.25rem 0; border-bottom: 1px solid rgba(51,65,85,0.4); display: flex; gap: 0.5rem; }
+    .detail-list .c { color: var(--muted); min-width: 90px; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div>
+      <h1>Lot 9 <span>Live Dashboard</span></h1>
+      <div style="font-size:0.72rem;color:var(--muted);margin-top:0.1rem">Schedule health · Critical / On Course / Watch · by County</div>
+    </div>
+    <div class="header-meta">
+      <span class="badge badge-eib">EIB Maximisation</span>
+      <span class="badge badge-live" id="dataBadge">● Built-in data</span>
+      <div id="fileNameLabel"></div>
+      <div id="refDateLabel"></div>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="status-key">
+      <span><i style="background:#22c55e"></i> Completed</span>
+      <span><i style="background:#ef4444"></i> Critical</span>
+      <span><i style="background:#38bdf8"></i> On Course</span>
+      <span><i style="background:#64748b"></i> Watch</span>
+      <span><i style="background:#a78bfa"></i> Undefined timelines</span>
+      <span><i style="background:#f97316"></i> Critical materials issue</span>
+      <span><i style="background:#f59e0b"></i> Focus completion (1 week)</span>
+    </div>
+    <!-- Rules hidden; logic remains in parser -->
+
+    <div class="section-title">Overall Snapshot</div>
+    <div class="kpi-row" id="kpiRow"></div>
+
+    <div class="section-title">Progress per County</div>
+    <div class="county-grid" id="countyGrid"></div>
+
+    <div class="section-title">County Comparison Table</div>
+    <div class="table-card">
+      <table>
+        <thead>
+          <tr>
+            <th>County</th>
+            <th class="num">Total</th>
+            <th class="num">Completed</th>
+            <th class="num">% Done</th>
+            <th class="num">Critical</th>
+            <th class="num">On Course</th>
+            <th class="num">Watch</th>
+            <th class="num">Undefined</th>
+            <th class="num">Materials</th>
+            <th class="num">Focus 1wk</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Visual Comparison</div>
+    <div class="charts-row">
+      <div class="chart-card">
+        <h3>Status Mix by County (% of schemes)</h3>
+        <div class="chart-wrap"><canvas id="stackedChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h3>Completion Rate Ranking</h3>
+        <div class="chart-wrap"><canvas id="completionChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="section-title">Critical Materials Issue (Pending Shutdown)</div>
+    <div class="table-card detail-list" id="materialsList"></div>
+
+    <div class="section-title">Focus Completion in a Week (In Metering, no dates)</div>
+    <div class="table-card detail-list" id="focusList"></div>
+
+    
+    <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem">
+      <span>Critical Schemes</span>
+      <button type="button" id="btnDownloadCritical" class="upload-btn" style="margin:0;font-size:0.75rem;padding:0.4rem 0.9rem">Download Critical (CSV)</button>
+    </div>
+    <div class="table-card" style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>County</th>
+            <th>Constituency</th>
+            <th>Location</th>
+            <th>Reference</th>
+            <th>Status</th>
+            <th>Start</th>
+            <th>End</th>
+            <th class="num">Days Left</th>
+          </tr>
+        </thead>
+        <tbody id="criticalTableBody"></tbody>
+      </table>
+    </div>
+
+    
+    <div class="section-title">10M Poles — Design vs Supply</div>
+    <div class="table-card" style="overflow-x:auto;margin-bottom:0.9rem">
+      <table>
+        <thead>
+          <tr>
+            <th>County</th>
+            <th class="num">Design WP (AX)</th>
+            <th class="num">Supply WP (BD)</th>
+            <th class="num">Balance WP</th>
+            <th class="num">% WP</th>
+            <th class="num">Design CP (AY)</th>
+            <th class="num">Supply CP (BE)</th>
+            <th class="num">Balance CP</th>
+            <th class="num">% CP</th>
+          </tr>
+        </thead>
+        <tbody id="polesTableBody"></tbody>
+      </table>
+    </div>
+    <div class="pending-grid" id="polesKpiRow" style="margin-bottom:0.5rem"></div>
+
+    <div class="section-title">Pending Pole Erection (DPR – Not Erected 10M WP)</div>
+    <div class="pending-grid" id="pendingGrid"></div>
+
+    <div class="section-title">Key Insights</div>
+    <div class="table-card" id="insightsBox" style="font-size:0.8rem;line-height:1.55;color:var(--muted)"></div>
+
+    <div class="section-title">Update from Excel</div>
+    <div class="upload-zone" id="uploadZone">
+      <h2>Drop LOT 9 DPR Excel file here</h2>
+      <p>Supports .xlsx / .xlsm · Reads <strong>LOT BOQ</strong> (County, Status, Start/End dates) and <strong>DPR</strong> (pending poles)</p>
+      <button class="upload-btn" type="button" onclick="document.getElementById('fileInput').click()">Choose File</button>
+      <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls" />
+      <div class="upload-status" id="uploadStatus"></div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    Lot 9 Live Dashboard · Client-side only · Excel never leaves this browser · SheetJS + Chart.js
+  </footer>
+
+  <script>
+    const DEFAULT = {
+      refDate: '2026-10-17',
+      counties: {
+        'KILIFI':        { completed:13, critical:4,  onCourse:2,  watch:13, undefined:1, materials:0, focus:0, other:1 },
+        'KWALE':         { completed:0,  critical:2,  onCourse:11, watch:8,  undefined:3, materials:0, focus:0, other:0 },
+        'MAKUENI':       { completed:20, critical:11, onCourse:6,  watch:20, undefined:7, materials:4, focus:0, other:0 },
+        'TAITA TAVETA':  { completed:17, critical:0,  onCourse:2,  watch:13, undefined:3, materials:0, focus:0, other:0 },
+        'KAJIADO':       { completed:16, critical:12, onCourse:13, watch:2,  undefined:0, materials:5, focus:0, other:0 }
+      },
+      materialsList: [
+        { county:'MAKUENI', loc:'Kiange Primary', status:'PENDING SHUTDOWN' },
+        { county:'MAKUENI', loc:'Songea Market', status:'PENDING SHUTDOWN' },
+        { county:'MAKUENI', loc:'Usalama Mkt (SS 144366)', status:'PENDING SHUTDOWN' },
+        { county:'MAKUENI', loc:'Katangini Primary', status:'PENDING SHUTDOWN' },
+        { county:'KAJIADO', loc:'Highrise', status:'PENDING SHUTDOWN' },
+        { county:'KAJIADO', loc:'Trinity', status:'PENDING SHUTDOWN' },
+        { county:'KAJIADO', loc:'Kwa Gitui', status:'PENDING SHUTDOWN' },
+        { county:'KAJIADO', loc:'Simba Cement', status:'PENDING SHUTDOWN' },
+        { county:'KAJIADO', loc:'Ilasit', status:'PENDING SHUTDOWN' }
+      ],
+      focusList: [],
+      criticalList: [{"county": "KAJIADO", "constituency": "KAJIADO WEST", "location": "KIMUKA 2", "reference": "Z21572024110001", "status": "IN METERING", "start": "3rd October", "end": "6TH October", "daysLeft": -11}, {"county": "KAJIADO", "constituency": "KAJIADO EAST", "location": "SEED OF DREAMS", "reference": "Z21562024100010", "status": "STRINGING", "start": "15th July", "end": "8th October", "daysLeft": -9}, {"county": "KAJIADO", "constituency": "KAJIADO SOUTH", "location": "KIKELELWA AREA", "reference": "Z21472025030001", "status": "STRINGING", "start": "2nd October", "end": "8TH October", "daysLeft": -9}, {"county": "KAJIADO", "constituency": "KAJIADO SOUTH", "location": "Imbirikani town", "reference": "Z21472024100001", "status": "STRINGING", "start": "25th October", "end": "13th October", "daysLeft": -4}, {"county": "KAJIADO", "constituency": "KAJIADO NORTH", "location": "SINAI VALLEY", "reference": "Z21572024100006", "status": "IN METERING", "start": "8th October", "end": "15th October", "daysLeft": -2}, {"county": "KAJIADO", "constituency": "KAJIADO SOUTH", "location": "Ronkena borehole", "reference": "Z21472024090001", "status": "POLE ERECTION COMPLETE", "start": "29th Sept", "end": "16th October", "daysLeft": -1}, {"county": "KAJIADO", "constituency": "KAJIADO SOUTH", "location": "Masangira", "reference": "Z21472024090002", "status": "POLE ERECTION COMPLETE", "start": "29th Sept", "end": "16th October", "daysLeft": -1}, {"county": "KAJIADO", "constituency": "KAJIADO EAST", "location": "CRIKAU", "reference": "Z21562024100009", "status": "HOLE DIGGING", "start": "10th October", "end": "21st October", "daysLeft": 4}, {"county": "KAJIADO", "constituency": "KAJIADO EAST", "location": "BARAKA VIEW", "reference": "Z21562024100008", "status": "STRINGING", "start": "15th October", "end": "23RD October", "daysLeft": 6}, {"county": "KAJIADO", "constituency": "KAJIADO EAST", "location": "VICTORY CHURCH", "reference": "Z21562024100006", "status": "STRINGING", "start": "10th October", "end": "23rd October", "daysLeft": 6}, {"county": "KILIFI", "constituency": "GANZE", "location": "KAFITSONI PRIMARY", "reference": "", "status": "STRINGING", "start": "", "end": "11TH OCT", "daysLeft": -6}, {"county": "KILIFI", "constituency": "GANZE", "location": "MWARANDINDA MKT", "reference": "", "status": "POLE ERECTION ONGOING", "start": "4TH OCT", "end": "20TH OCT", "daysLeft": 3}, {"county": "KILIFI", "constituency": "GANZE", "location": "MBWANA PRIMARY SCHOOL", "reference": "", "status": "HOLE DIGGING", "start": "4TH OCT", "end": "20TH OCT", "daysLeft": 3}, {"county": "KILIFI", "constituency": "GANZE", "location": "MEKATILILI MEMORIAL", "reference": "", "status": "HOLE DIGGING", "start": "", "end": "20TH OCT", "daysLeft": 3}, {"county": "KWALE", "constituency": "KINANGO", "location": "Mavirivirini", "reference": "", "status": "STRINGING", "start": "", "end": "24TH OCTOBER", "daysLeft": 7}, {"county": "KWALE", "constituency": "KINANGO", "location": "KALUWENI PRIMARY", "reference": "", "status": "HOLE DIGGING", "start": "", "end": "24TH OCTOBER", "daysLeft": 7}, {"county": "MAKUENI", "constituency": "KIBWEZI EAST", "location": "UVILENI PRIMARY", "reference": "", "status": "IN METERING", "start": "5TH October", "end": "9th October", "daysLeft": -8}, {"county": "MAKUENI", "constituency": "KIBWEZI EAST", "location": "MBEETWANI PRIMARY", "reference": "Z21622024090016", "status": "STRINGING", "start": "30th Sept", "end": "10th October", "daysLeft": -7}, {"county": "MAKUENI", "constituency": "KIBWEZI EAST", "location": "KIVUTINI PRIMARY", "reference": "Z21622024080004", "status": "IN METERING", "start": "5TH October", "end": "10th October", "daysLeft": -7}, {"county": "MAKUENI", "constituency": "KIBWEZI WEST", "location": "CHRISTOPHER LATI", "reference": "Z21642024080010", "status": "IN METERING", "start": "5TH October", "end": "10th October", "daysLeft": -7}, {"county": "MAKUENI", "constituency": "KIBWEZI WEST", "location": "NDUNGUNI MARKET", "reference": "Z21632024080012", "status": "HOLE DIGGING", "start": "5th October", "end": "10th October", "daysLeft": -7}, {"county": "MAKUENI", "constituency": "KIBWEZI EAST", "location": "KITENGEI SECONDARY", "reference": "Z21642024080008", "status": "IN METERING", "start": "5TH October", "end": "12th October", "daysLeft": -5}, {"county": "MAKUENI", "constituency": "KIBWEZI WEST", "location": "MAKAANI MARKET", "reference": "Z21642024080011", "status": "STRINGING", "start": "5th October", "end": "14th October", "daysLeft": -3}, {"county": "MAKUENI", "constituency": "KIBWEZI EAST", "location": "MITAMBONI PRIMARY", "reference": "Z21622024080006", "status": "STRINGING", "start": "30th Sept", "end": "15th October", "daysLeft": -2}, {"county": "MAKUENI", "constituency": "KIBWEZI EAST", "location": "KATIVANI MKT", "reference": "Z21622024080003", "status": "STRINGING", "start": "30th Sept", "end": "19th October", "daysLeft": 2}, {"county": "MAKUENI", "constituency": "KILOME", "location": "IANDUINI", "reference": "Z21622024080016", "status": "IN METERING", "start": "10th October", "end": "20TH October", "daysLeft": 3}, {"county": "MAKUENI", "constituency": "KIBWEZI WEST", "location": "KALEMBE RAHA MARKET", "reference": "Z21642024080016", "status": "STRINGING", "start": "29th September", "end": "26th October", "daysLeft": 9}],
+      
+      poles: {
+        'KILIFI':        { designWp: 2107, supplyWp: 1558, designCp: 209, supplyCp: 0 },
+        'KWALE':         { designWp: 1820, supplyWp: 1330, designCp: 102, supplyCp: 0 },
+        'MAKUENI':       { designWp: 5067, supplyWp: 3087, designCp: 1550, supplyCp: 1505 },
+        'TAITA TAVETA':  { designWp: 3279, supplyWp: 1697, designCp: 0, supplyCp: 0 },
+        'KAJIADO':       { designWp: 1754, supplyWp: 1668, designCp: 736, supplyCp: 720 }
+      },
+      pending: { 'KILIFI':90, 'KWALE':400, 'MAKUENI':386, 'TAITA TAVETA':328, 'KAJIADO':243, total:1423 }
+    };
+
+    const ORDER = ['KILIFI','KWALE','MAKUENI','TAITA TAVETA','KAJIADO'];
+    const KEYS = ['completed','critical','onCourse','watch','undefined','materials','focus','other'];
+    const COLORS = {
+      completed:'#22c55e', critical:'#ef4444', onCourse:'#38bdf8', watch:'#64748b',
+      undefined:'#a78bfa', materials:'#f97316', focus:'#f59e0b', other:'#475569'
+    };
+    let stackedChart = null, completionChart = null;
+
+    function totalOf(c) { return KEYS.reduce((s,k) => s + (c[k]||0), 0); }
+    function pct(n, t) { return t ? Math.round((n / t) * 1000) / 10 : 0; }
+    function pctClass(p) { return p >= 45 ? 'high' : p >= 20 ? 'mid' : 'low'; }
+
+    function render(data) {
+      const counties = data.counties;
+      const pending = data.pending || {};
+      document.getElementById('refDateLabel').innerHTML = data.refDate ? '<strong>Ref:</strong> ' + data.refDate : '';
+
+      let tot = {}; KEYS.forEach(k => tot[k] = 0);
+      let schemes = 0;
+      ORDER.forEach(name => {
+        const c = counties[name] || {};
+        KEYS.forEach(k => tot[k] += c[k]||0);
+        schemes += totalOf(c);
+      });
+      const donePct = pct(tot.completed, schemes);
+
+      document.getElementById('kpiRow').innerHTML = `
+        <div class="kpi-card"><div class="kpi-label">Total Schemes</div><div class="kpi-value">${schemes}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Completed</div><div class="kpi-value" style="color:var(--green)">${tot.completed}</div><div class="kpi-sub">${donePct}%</div></div>
+        <div class="kpi-card"><div class="kpi-label">Critical</div><div class="kpi-value" style="color:var(--red)">${tot.critical}</div></div>
+        <div class="kpi-card"><div class="kpi-label">On Course</div><div class="kpi-value" style="color:var(--accent)">${tot.onCourse}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Watch</div><div class="kpi-value" style="color:#94a3b8">${tot.watch}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Undefined</div><div class="kpi-value" style="color:var(--purple)">${tot.undefined}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Materials Issue</div><div class="kpi-value" style="color:var(--orange)">${tot.materials}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Focus (1 week)</div><div class="kpi-value" style="color:var(--amber)">${tot.focus}</div></div>
+      `;
+
+      let cards = '';
+      ORDER.forEach(name => {
+        const c = counties[name] || {};
+        const t = totalOf(c);
+        const p = pct(c.completed, t);
+        const segs = [
+          ['completed',c.completed],['critical',c.critical],['onCourse',c.onCourse],
+          ['watch',c.watch],['undefined',c.undefined],['materials',c.materials],
+          ['focus',c.focus],['other',c.other]
+        ];
+        const bar = segs.map(([k,n]) =>
+          `<div class="bar-seg" style="width:${pct(n||0,t)}%;background:${COLORS[k]}"></div>`
+        ).join('');
+        cards += `
+          <div class="county-card">
+            <h3>${name} <span class="total">${t} schemes</span></h3>
+            <div>
+              <div class="done-pct ${pctClass(p)}">${p}%</div>
+              <div style="font-size:0.7rem;color:var(--muted)">Completed (${c.completed||0} of ${t})</div>
+            </div>
+            <div class="bar-stack">${bar}</div>
+            <div class="legend-grid">
+              <div class="legend-item"><div class="legend-dot" style="background:${COLORS.completed}"></div>Completed <span>${c.completed||0}</span></div>
+              <div class="legend-item"><div class="legend-dot" style="background:${COLORS.critical}"></div>Critical <span>${c.critical||0}</span></div>
+              <div class="legend-item"><div class="legend-dot" style="background:${COLORS.onCourse}"></div>On Course <span>${c.onCourse||0}</span></div>
+              <div class="legend-item"><div class="legend-dot" style="background:${COLORS.watch}"></div>Watch <span>${c.watch||0}</span></div>
+              <div class="legend-item"><div class="legend-dot" style="background:${COLORS.undefined}"></div>Undefined <span>${c.undefined||0}</span></div>
+              <div class="legend-item"><div class="legend-dot" style="background:${COLORS.materials}"></div>Materials <span>${c.materials||0}</span></div>
+              <div class="legend-item"><div class="legend-dot" style="background:${COLORS.focus}"></div>Focus 1wk <span>${c.focus||0}</span></div>
+            </div>
+          </div>`;
+      });
+      document.getElementById('countyGrid').innerHTML = cards;
+
+      let rows = '';
+      ORDER.forEach(name => {
+        const c = counties[name] || {};
+        const t = totalOf(c);
+        const p = pct(c.completed, t);
+        rows += `<tr>
+          <td><strong>${name}</strong></td>
+          <td class="num">${t}</td>
+          <td class="num">${c.completed||0}</td>
+          <td class="num pct-${pctClass(p)}">${p}%</td>
+          <td class="num">${c.critical||0}</td>
+          <td class="num">${c.onCourse||0}</td>
+          <td class="num">${c.watch||0}</td>
+          <td class="num">${c.undefined||0}</td>
+          <td class="num">${c.materials||0}</td>
+          <td class="num">${c.focus||0}</td>
+        </tr>`;
+      });
+      rows += `<tr style="background:rgba(56,189,248,0.06);font-weight:700">
+        <td>TOTAL</td><td class="num">${schemes}</td><td class="num">${tot.completed}</td>
+        <td class="num">${donePct}%</td><td class="num">${tot.critical}</td><td class="num">${tot.onCourse}</td>
+        <td class="num">${tot.watch}</td><td class="num">${tot.undefined}</td>
+        <td class="num">${tot.materials}</td><td class="num">${tot.focus}</td>
+      </tr>`;
+      document.getElementById('tableBody').innerHTML = rows;
+
+      const mat = data.materialsList || [];
+      document.getElementById('materialsList').innerHTML = mat.length
+        ? mat.map(e => `<div><span class="c">${e.county}</span><span>${e.loc || ''}</span><span style="margin-left:auto;color:var(--orange)">${e.status||'PENDING SHUTDOWN'}</span></div>`).join('')
+        : '<div style="color:var(--muted)">None</div>';
+
+      const foc = data.focusList || [];
+      document.getElementById('focusList').innerHTML = foc.length
+        ? foc.map(e => `<div><span class="c">${e.county}</span><span>${e.loc || ''}</span><span style="margin-left:auto;color:var(--amber)">${e.status||'IN METERING'}</span></div>`).join('')
+        : '<div style="color:var(--muted)">None — all In Metering schemes have dates (scored as Critical or On Course)</div>';
+
+      let pend = '';
+      ORDER.forEach(name => {
+        const v = pending[name] || 0;
+        const color = v >= 350 ? 'var(--red)' : v >= 200 ? 'var(--amber)' : 'var(--text)';
+        pend += `<div class="pending-card"><h4>${name}</h4><div class="pending-val" style="color:${color}">${Number(v).toLocaleString()}</div><div class="pending-sub">Not erected 10M WP</div></div>`;
+      });
+      pend += `<div class="pending-card"><h4>Lot Total</h4><div class="pending-val">${Number(pending.total||0).toLocaleString()}</div><div class="pending-sub">At sites</div></div>`;
+      document.getElementById('pendingGrid').innerHTML = pend;
+
+      const ranked = ORDER.map(n => ({ n, p: pct((counties[n]||{}).completed||0, totalOf(counties[n]||{})) }))
+        .sort((a,b) => b.p - a.p);
+      document.getElementById('insightsBox').innerHTML = `
+        <ul style="padding-left:1.1rem">
+          <li><strong style="color:var(--text)">${ranked[0].n}</strong> leads completion at <strong style="color:var(--green)">${ranked[0].p}%</strong>.</li>
+          <li><strong style="color:var(--text)">${ranked[ranked.length-1].n}</strong> lowest at <strong style="color:var(--red)">${ranked[ranked.length-1].p}%</strong>.</li>
+          <li><strong style="color:var(--text)">${tot.critical}</strong> schemes are <strong style="color:var(--red)">schedule-critical</strong> · <strong style="color:var(--text)">${tot.materials}</strong> blocked on <strong style="color:var(--orange)">materials (shutdown)</strong>.</li>
+          <li><strong style="color:var(--text)">${tot.watch}</strong> on <strong>Watch</strong> (not started) · <strong style="color:var(--text)">${tot.undefined}</strong> with <strong style="color:var(--purple)">undefined timelines</strong>.</li>
+          <li>Overall completed: <strong style="color:var(--text)">${donePct}%</strong> (${tot.completed} of ${schemes}).</li>
+        </ul>`;
+
+      
+      // Critical table
+      window.__criticalList = data.criticalList || [];
+      const critBody = document.getElementById('criticalTableBody');
+      if (critBody) {
+        if (!window.__criticalList.length) {
+          critBody.innerHTML = '<tr><td colspan="8" style="color:var(--muted)">No critical schemes</td></tr>';
+        } else {
+          critBody.innerHTML = window.__criticalList.map(e => {
+            const d = e.daysLeft;
+            const col = d < 0 ? 'var(--red)' : d < 5 ? 'var(--amber)' : 'var(--text)';
+            return `<tr>
+              <td>${e.county||''}</td>
+              <td>${e.constituency||''}</td>
+              <td>${e.location||''}</td>
+              <td>${e.reference||''}</td>
+              <td>${e.status||''}</td>
+              <td>${e.start||''}</td>
+              <td>${e.end||''}</td>
+              <td class="num" style="color:${col};font-weight:700">${d}</td>
+            </tr>`;
+          }).join('');
+        }
+      }
+
+      
+      // Poles design vs supply
+      const poles = data.poles || {};
+      let pTdWp=0, pTsWp=0, pTdCp=0, pTsCp=0;
+      let polesRows = '';
+      ORDER.forEach(name => {
+        const p = poles[name] || { designWp:0, supplyWp:0, designCp:0, supplyCp:0 };
+        const dW = p.designWp||0, sW = p.supplyWp||0, dC = p.designCp||0, sC = p.supplyCp||0;
+        const bW = sW - dW, bC = sC - dC;
+        const pctW = dW ? Math.round(sW/dW*1000)/10 : (sW ? 100 : 0);
+        const pctC = dC ? Math.round(sC/dC*1000)/10 : (sC ? 100 : 0);
+        pTdWp += dW; pTsWp += sW; pTdCp += dC; pTsCp += sC;
+        const colW = bW < 0 ? 'var(--red)' : 'var(--green)';
+        const colC = bC < 0 ? 'var(--red)' : 'var(--green)';
+        polesRows += `<tr>
+          <td><strong>${name}</strong></td>
+          <td class="num">${dW.toLocaleString()}</td>
+          <td class="num">${sW.toLocaleString()}</td>
+          <td class="num" style="color:${colW};font-weight:700">${bW > 0 ? '+' : ''}${bW.toLocaleString()}</td>
+          <td class="num">${pctW}%</td>
+          <td class="num">${dC.toLocaleString()}</td>
+          <td class="num">${sC.toLocaleString()}</td>
+          <td class="num" style="color:${colC};font-weight:700">${bC > 0 ? '+' : ''}${bC.toLocaleString()}</td>
+          <td class="num">${pctC}%</td>
+        </tr>`;
+      });
+      const bWp = pTsWp - pTdWp, bCp = pTsCp - pTdCp;
+      const pctWpT = pTdWp ? Math.round(pTsWp/pTdWp*1000)/10 : 0;
+      const pctCpT = pTdCp ? Math.round(pTsCp/pTdCp*1000)/10 : 0;
+      polesRows += `<tr style="background:rgba(56,189,248,0.06);font-weight:700">
+        <td>TOTAL</td>
+        <td class="num">${pTdWp.toLocaleString()}</td>
+        <td class="num">${pTsWp.toLocaleString()}</td>
+        <td class="num" style="color:${bWp<0?'var(--red)':'var(--green)'}">${bWp > 0 ? '+' : ''}${bWp.toLocaleString()}</td>
+        <td class="num">${pctWpT}%</td>
+        <td class="num">${pTdCp.toLocaleString()}</td>
+        <td class="num">${pTsCp.toLocaleString()}</td>
+        <td class="num" style="color:${bCp<0?'var(--red)':'var(--green)'}">${bCp > 0 ? '+' : ''}${bCp.toLocaleString()}</td>
+        <td class="num">${pctCpT}%</td>
+      </tr>`;
+      const polesBody = document.getElementById('polesTableBody');
+      if (polesBody) polesBody.innerHTML = polesRows;
+      const polesKpi = document.getElementById('polesKpiRow');
+      if (polesKpi) {
+        polesKpi.innerHTML = `
+          <div class="pending-card"><h4>10M WP Design</h4><div class="pending-val">${pTdWp.toLocaleString()}</div><div class="pending-sub">Column AX</div></div>
+          <div class="pending-card"><h4>10M WP Supply</h4><div class="pending-val">${pTsWp.toLocaleString()}</div><div class="pending-sub">${pctWpT}% of design · gap ${bWp.toLocaleString()}</div></div>
+          <div class="pending-card"><h4>10M CP Design</h4><div class="pending-val">${pTdCp.toLocaleString()}</div><div class="pending-sub">Column AY</div></div>
+          <div class="pending-card"><h4>10M CP Supply</h4><div class="pending-val">${pTsCp.toLocaleString()}</div><div class="pending-sub">${pctCpT}% of design · gap ${bCp.toLocaleString()}</div></div>
+        `;
+      }
+
+      updateCharts(counties);
+    }
+
+    function updateCharts(counties) {
+      const labels = ORDER;
+      const pctData = (key) => labels.map(n => {
+        const c = counties[n] || {};
+        return pct(c[key]||0, totalOf(c));
+      });
+
+      if (stackedChart) stackedChart.destroy();
+      stackedChart = new Chart(document.getElementById('stackedChart'), {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Completed', data: pctData('completed'), backgroundColor: COLORS.completed, stack: 's' },
+            { label: 'Critical', data: pctData('critical'), backgroundColor: COLORS.critical, stack: 's' },
+            { label: 'On Course', data: pctData('onCourse'), backgroundColor: COLORS.onCourse, stack: 's' },
+            { label: 'Watch', data: pctData('watch'), backgroundColor: COLORS.watch, stack: 's' },
+            { label: 'Undefined', data: pctData('undefined'), backgroundColor: COLORS.undefined, stack: 's' },
+            { label: 'Materials', data: pctData('materials'), backgroundColor: COLORS.materials, stack: 's' },
+            { label: 'Focus 1wk', data: pctData('focus'), backgroundColor: COLORS.focus, stack: 's' }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 10, padding: 8, font: { size: 10 } } },
+            tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw}%` } }
+          },
+          scales: {
+            x: { stacked: true, grid: { display: false } },
+            y: { stacked: true, max: 100, ticks: { callback: v => v + '%' }, grid: { color: '#1e293b' } }
+          }
+        }
+      });
+
+      const ranked = labels.map(n => ({ n, p: pct((counties[n]||{}).completed||0, totalOf(counties[n]||{})) }))
+        .sort((a,b) => b.p - a.p);
+      if (completionChart) completionChart.destroy();
+      completionChart = new Chart(document.getElementById('completionChart'), {
+        type: 'bar',
+        data: {
+          labels: ranked.map(r => r.n),
+          datasets: [{
+            data: ranked.map(r => r.p),
+            backgroundColor: ranked.map(r => r.p >= 45 ? '#22c55e' : r.p >= 20 ? '#f59e0b' : '#ef4444'),
+            borderRadius: 6, barThickness: 30
+          }]
+        },
+        options: {
+          indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.raw + '% completed' } } },
+          scales: {
+            x: { max: 60, ticks: { callback: v => v + '%' }, grid: { color: '#1e293b' } },
+            y: { grid: { display: false } }
+          }
+        }
+      });
+    }
+
+    const MONTHS = {JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12};
+
+    function parseDate(val, yearHint) {
+      if (val == null) return null;
+      if (val instanceof Date && !isNaN(val)) return new Date(val.getFullYear(), val.getMonth(), val.getDate());
+      let s = String(val).trim().toUpperCase();
+      if (!s || s === 'NONE' || s === 'N/A' || s === '-') return null;
+      s = s.replace('SPTEMBER','SEPTEMBER').replace('OCTOER','OCTOBER').replace('DECMBER','DECEMBER');
+      const m = s.match(/(\d{1,2})(?:ST|ND|RD|TH)?\s*([A-Z]+)/);
+      if (m) {
+        const day = parseInt(m[1], 10);
+        const mon = MONTHS[m[2].slice(0,3)];
+        if (mon) {
+          const last = mon === 2 ? 28 : [4,6,9,11].includes(mon) ? 30 : 31;
+          return new Date(yearHint, mon - 1, Math.min(day, last));
+        }
+      }
+      return null;
+    }
+
+    function normalizeCounty(raw) {
+      if (!raw) return null;
+      const a = String(raw).trim().toUpperCase();
+      if (a.includes('KAJIADO')) return 'KAJIADO';
+      if (a.includes('KILIFI') || a.includes('GANZE')) return 'KILIFI';
+      if (a.includes('KWALE') || a.includes('KINANGO')) return 'KWALE';
+      if (a.includes('MAKUENI') || a.includes('KIBWEZI') || a.includes('KILOME') || a.includes('MBOONI') || a.includes('KAITI')) return 'MAKUENI';
+      if (a.includes('TAITA') || a.includes('TAVETA') || a.includes('VOI') || a.includes('MWATATE')) return 'TAITA TAVETA';
+      return null;
+    }
+
+    function classify(status, startD, endD, ref) {
+      const st = String(status || '').toUpperCase().trim();
+      const hasD = !!(startD || endD);
+      if (st.includes('COMPLETE WITH FDB') || st === 'COMPLETE') return 'completed';
+      if (st.includes('SHUTDOWN')) return 'materials';
+      if (st.includes('METERING') && !hasD) return 'focus';
+      if (st.includes('NOT STARTED')) return 'watch';
+      if (!hasD) {
+        if (st.includes('STRINGING') || st.includes('POLE ERECTION') || st.includes('HOLE DIGGING')) return 'undefined';
+        return 'other';
+      }
+      if (endD) {
+        const remaining = Math.round((endD - ref) / 86400000);
+        if (st.includes('HOLE DIGGING') || st.includes('POLE ERECTION COMPLETE') || st.includes('POLE ERECTION ONGOING'))
+          return remaining < 12 ? 'critical' : 'onCourse';
+        if (st.includes('STRINGING')) return remaining < 12 ? 'critical' : 'onCourse';
+        if (st.includes('METERING')) return remaining < 5 ? 'critical' : 'onCourse';
+      }
+      return 'other';
+    }
+
+    function parseWorkbook(wb) {
+      const yearHint = new Date().getFullYear();
+      const ref = new Date(); ref.setHours(0,0,0,0);
+      const empty = () => ({ completed:0, critical:0, onCourse:0, watch:0, undefined:0, materials:0, focus:0, other:0 });
+      const counties = {};
+      ORDER.forEach(k => counties[k] = empty());
+      const materialsList = [];
+      const focusList = [];
+      const criticalList = [];
+
+      const boqName = wb.SheetNames.find(n => /LOT\s*BOQ/i.test(n)) || wb.SheetNames.find(n => /BOQ/i.test(n));
+      if (!boqName) throw new Error('LOT BOQ sheet not found');
+      const boqRows = XLSX.utils.sheet_to_json(wb.Sheets[boqName], { header: 1, defval: null });
+
+      let countyCol = 4, statusCol = 61, startCol = 63, endCol = 64, locCol = 7, headerRow = 3;
+      for (let r = 0; r < Math.min(12, boqRows.length); r++) {
+        const row = boqRows[r] || [];
+        row.forEach((cell, c) => {
+          const v = String(cell || '').toUpperCase();
+          if (v === 'COUNTY') countyCol = c;
+          if (v.includes('SCHEME STATUS') || (v === 'STATUS' && c > 50)) statusCol = c;
+          if (v.includes('START DATE')) startCol = c;
+          if (v.includes('END DATE')) endCol = c;
+          if (v === 'LOCATION' || v === 'SCHEME NAME') locCol = c;
+        });
+      }
+
+      for (let r = headerRow + 1; r < boqRows.length; r++) {
+        const row = boqRows[r] || [];
+        const county = normalizeCounty(row[countyCol]);
+        if (!county || !counties[county]) continue;
+        const status = row[statusCol];
+        if (status == null && row[9] == null) continue;
+        const startD = parseDate(row[startCol], yearHint);
+        const endD = parseDate(row[endCol], yearHint);
+        const cat = classify(status, startD, endD, ref);
+        counties[county][cat]++;
+        const loc = row[locCol] || row[9] || '';
+        const constituency = row[5] || '';
+        const reference = row[9] || '';
+        if (cat === 'materials') materialsList.push({ county, loc: String(loc), status: String(status||'') });
+        if (cat === 'focus') focusList.push({ county, loc: String(loc), status: String(status||'') });
+        if (cat === 'critical' && endD) {
+          const daysLeft = Math.round((endD - ref) / 86400000);
+          criticalList.push({
+            county, constituency: String(constituency), location: String(loc),
+            reference: String(reference), status: String(status||''),
+            start: String(row[startCol]||''), end: String(row[endCol]||''), daysLeft
+          });
+        }
+      }
+
+      
+      // Poles: AX=design 10M WP (col 50), AY=design 10M CP (51), BD=supply WP (56), BE=supply CP (57)
+      const poles = {};
+      ORDER.forEach(k => poles[k] = { designWp:0, supplyWp:0, designCp:0, supplyCp:0 });
+      let axCol = 49, ayCol = 50, bdCol = 55, beCol = 56; // 0-indexed from sheet_to_json
+      // Prefer finding by header
+      for (let r = 0; r < Math.min(8, boqRows.length); r++) {
+        const row = boqRows[r] || [];
+        // row 2 (index) often has DESIGN / SUPPLY; row 3 has 10M WP labels under them
+      }
+      // Fixed positions matching LOT BOQ structure (0-indexed): AX=49, AY=50, BD=55, BE=56
+      axCol = 49; ayCol = 50; bdCol = 55; beCol = 56;
+      for (let r = headerRow + 1; r < boqRows.length; r++) {
+        const row = boqRows[r] || [];
+        const county = normalizeCounty(row[countyCol]);
+        if (!county || !poles[county]) continue;
+        if (row[statusCol] == null && row[9] == null) continue;
+        const n = (v) => { const x = Number(v); return isNaN(x) ? 0 : x; };
+        poles[county].designWp += n(row[axCol]);
+        poles[county].designCp += n(row[ayCol]);
+        poles[county].supplyWp += n(row[bdCol]);
+        poles[county].supplyCp += n(row[beCol]);
+      }
+
+      const pending = { total: 0 };
+      ORDER.forEach(k => pending[k] = 0);
+      const dprName = wb.SheetNames.find(n => n.toUpperCase() === 'DPR');
+      if (dprName) {
+        const dprRows = XLSX.utils.sheet_to_json(wb.Sheets[dprName], { header: 1, defval: null });
+        let areaCol = 1, notErectedCol = 14;
+        for (let r = 0; r < Math.min(100, dprRows.length); r++) {
+          (dprRows[r] || []).forEach((cell, c) => {
+            const v = String(cell || '').toUpperCase();
+            if (v.includes('NOT ERECTED') && v.includes('10M')) notErectedCol = c;
+          });
+        }
+        for (let r = 0; r < dprRows.length; r++) {
+          const row = dprRows[r] || [];
+          const county = normalizeCounty(row[areaCol]);
+          let val = Number(row[notErectedCol]);
+          if (!county || isNaN(val) || val <= 0) continue;
+          pending[county] += val;
+          pending.total += val;
+        }
+      }
+
+      criticalList.sort((a,b) => (a.county||'').localeCompare(b.county||'') || (a.daysLeft - b.daysLeft));
+      return { refDate: ref.toISOString().slice(0, 10), counties, materialsList, focusList, criticalList, poles, pending };
+    }
+
+    const zone = document.getElementById('uploadZone');
+    const input = document.getElementById('fileInput');
+    const statusEl = document.getElementById('uploadStatus');
+
+    function showStatus(msg, isError) {
+      statusEl.style.display = 'block';
+      statusEl.textContent = msg;
+      statusEl.className = 'upload-status' + (isError ? ' error' : '');
+    }
+
+    function handleFile(file) {
+      if (!file) return;
+      showStatus('Reading ' + file.name + ' …');
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
+          const parsed = parseWorkbook(wb);
+          render(parsed);
+          document.getElementById('dataBadge').textContent = '● Live from Excel';
+          document.getElementById('fileNameLabel').innerHTML = '<strong>File:</strong> ' + file.name;
+          showStatus('Updated successfully from ' + file.name);
+        } catch (err) {
+          console.error(err);
+          showStatus('Error: ' + err.message, true);
+        }
+      };
+      reader.onerror = () => showStatus('Failed to read file', true);
+      reader.readAsArrayBuffer(file);
+    }
+
+    input.addEventListener('change', () => handleFile(input.files[0]));
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault(); zone.classList.remove('dragover');
+      handleFile(e.dataTransfer.files[0]);
+    });
+    zone.addEventListener('click', (e) => {
+      if (e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') input.click();
+    });
+
+    
+    function downloadCriticalCsv() {
+      const list = window.__criticalList || [];
+      if (!list.length) { alert('No critical schemes to download'); return; }
+      const headers = ['County','Constituency','Location','Reference','Status','Start','End','Days Left'];
+      const esc = (v) => {
+        const s = String(v ?? '');
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      const lines = [headers.join(',')].concat(list.map(e =>
+        [e.county, e.constituency, e.location, e.reference, e.status, e.start, e.end, e.daysLeft].map(esc).join(',')
+      ));
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'Lot9_Critical_Schemes_' + (new Date().toISOString().slice(0,10)) + '.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+    document.getElementById('btnDownloadCritical')?.addEventListener('click', downloadCriticalCsv);
+
+    Chart.defaults.color = '#94a3b8';
+    Chart.defaults.borderColor = '#334155';
+    Chart.defaults.font.family = 'Inter';
+    render(DEFAULT);
+  </script>
+</body>
+</html>
